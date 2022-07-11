@@ -1,4 +1,3 @@
-import sys
 from dataclasses import dataclass
 from struct import pack
 from typing import TYPE_CHECKING, Any
@@ -16,7 +15,7 @@ class Opcode:
         return self.int_arg(self.arg)
 
     def int_arg(self, x: int) -> bytes:
-        return pack("Bb" if x < 0 else "BB", self.id, x)
+        return pack("Bb" if x < 0 else "BB", self.id, x & 0xFF)
 
 
 class JumpOp(Opcode):
@@ -32,8 +31,11 @@ class ConstOp(Opcode):
         super().__init__(id, arg)
 
     def serialize(self, ctx: 'Serializer') -> bytes:
+        from serializer import code_replace
+
         if self.arg not in ctx.code.co_consts:
-            ctx.code = ctx.code.replace(
+            ctx.code = code_replace(
+                ctx.code,
                 co_consts=ctx.code.co_consts + (self.arg,),
             )
         return self.int_arg(ctx.code.co_consts.index(self.arg))
@@ -44,8 +46,11 @@ class NameOp(Opcode):
         super().__init__(id, arg)
 
     def serialize(self, ctx: 'Serializer') -> bytes:
+        from serializer import code_replace
+
         if self.arg not in ctx.code.co_names:
-            ctx.code = ctx.code.replace(
+            ctx.code = code_replace(
+                ctx.code,
                 co_names=ctx.code.co_names + (self.arg,),
             )
         return self.int_arg(ctx.code.co_names.index(self.arg))
@@ -56,8 +61,11 @@ class VarOp(Opcode):
         super().__init__(id, arg)
 
     def serialize(self, ctx: 'Serializer') -> bytes:
+        from serializer import code_replace
+
         if self.arg not in ctx.code.co_varnames:
-            ctx.code = ctx.code.replace(
+            ctx.code = code_replace(
+                ctx.code,
                 co_varnames=ctx.code.co_varnames + (self.arg,),
             )
         return self.int_arg(ctx.code.co_varnames.index(self.arg))
@@ -70,7 +78,7 @@ class CellOp(Opcode):
     def serialize(self, ctx: 'Serializer') -> bytes:
         if self.arg not in ctx.code.co_freevars:
             if self.arg not in ctx.code.co_cellvars:
-                raise ValueError("Could not find {0} in free vars!".format(self.arg))
+                raise ValueError("Could not find {0} in freevars or cellvars!".format(self.arg))
             return self.int_arg(ctx.code.co_cellvars.index(self.arg))
         return self.int_arg(ctx.code.co_freevars.index(self.arg) + len(ctx.code.co_cellvars))
 
@@ -88,6 +96,24 @@ class RelJumpOp(JumpOp):
         super().__init__(id, arg)
 
     def serialize(self, ctx: 'Serializer') -> bytes:
-        from_index = ctx.current_index+2
-        to_index = self.arg*2
-        return self.int_arg((to_index - from_index) // 2)
+        from_index = ctx.current_index
+        to_index = self.arg
+        return self.int_arg(to_index - from_index)
+
+
+# Used only in 3.11+
+class MultiOp(Opcode):
+    def __init__(self, id: int, arg: tuple):
+        super().__init__(id, arg)
+
+    def serialize(self, ctx: 'Serializer') -> bytes:
+        l = self.serialize_left(ctx, self.arg[0])
+        r = self.serialize_right(ctx, self.arg[1])
+
+        return l + r
+
+    def serialize_left(self, ctx: 'Serializer', arg) -> bytes:
+        raise NotImplementedError()
+
+    def serialize_right(self, ctx: 'Serializer', arg) -> bytes:
+        raise NotImplementedError()

@@ -1,7 +1,7 @@
 from opcode import opmap, hasjrel, hasjabs, stack_effect
 from struct import unpack
 
-hashbranch = [
+hasbranch = [
     opmap.get("JUMP_IF_FALSE_OR_POP"),
     opmap.get("JUMP_IF_TRUE_OR_POP"),
     opmap.get("POP_JUMP_IF_FALSE"),
@@ -28,7 +28,7 @@ class StackChecker:
             # if current < 0:
             #     raise ValueError("Negative stack index!")
 
-            if op in hashbranch:
+            if op in hasbranch:
                 new_jumped = jumped + [arg, current + n]
 
                 # do both branches

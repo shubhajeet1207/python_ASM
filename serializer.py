@@ -1,10 +1,37 @@
-from dis import _unpack_opargs, dis
-from opcode import hasjrel, hasjabs, hasconst, hasname, haslocal, cmp_op, hascompare, stack_effect, hasfree
+import sys
+from dis import _unpack_opargs
+from opcode import hasjrel, hasjabs, hasconst, hasname, haslocal, cmp_op, hascompare, hasfree
 from types import CodeType
 from typing import List, Union
 
-from asm.ops import Opcode, ALL_OPS
-from asm.stack_check import StackChecker
+from ops import Opcode, ALL_OPS, MultiOp
+from stack_chek import StackChecker
+
+
+def code_replace(code_obj: CodeType, **kwargs) -> CodeType:
+    if sys.version_info >= (3, 8):
+        return code_obj.replace(**kwargs)
+
+    def _(n: str):
+        return kwargs.get(n, getattr(code_obj, n))
+
+    return CodeType(
+        _("co_argcount"),
+        _("co_kwonlyargcount"),
+        _("co_nlocals"),
+        _("co_stacksize"),
+        _("co_flags"),
+        _("co_code"),
+        _("co_consts"),
+        _("co_names"),
+        _("co_varnames"),
+        _("co_filename"),
+        _("co_name"),
+        _("co_firstlineno"),
+        _("co_lnotab"),
+        _("co_freevars"),
+        _("co_cellvars")
+    )
 
 
 class Label:
@@ -13,7 +40,7 @@ class Label:
 
     def set(self, index: int):
         for p in self.parents:
-            p.arg = int(index / 2)
+            p.arg = int(index / 2) if sys.version_info >= (3, 10) else index
 
     def __repr__(self):
         return "Label({0})".format(hex(id(self)))
@@ -27,19 +54,23 @@ class Deserializer:
         lbls = []
         for (i, op, arg) in _unpack_opargs(self.code.co_code):
             if op in hasjrel:
-                idx = i + (arg + 1) * 2
+                idx = (i + (arg + 1) * 2) if sys.version_info >= (3, 10) else (i + arg + 2)
                 if idx not in lbls:
                     lbls.append(idx)
             elif op in hasjabs:
-                if arg * 2 not in lbls:
-                    lbls.append(arg * 2)
+                idx = arg * 2 if sys.version_info >= (3, 10) else arg
+                if idx not in lbls:
+                    lbls.append(idx)
         return lbls
 
     def deserialize(self) -> List[Union[Opcode, Label]]:
         labels = sorted(self.find_labels())
         label_objs = {it: Label() for it in labels}
         elements = []
+        waiting_element = None
         for (i, op, arg) in _unpack_opargs(self.code.co_code):
+            cls = ALL_OPS[op]
+
             for k, l in label_objs.items():
                 if i == k:
                     elements.append(l)
@@ -58,20 +89,27 @@ class Deserializer:
                 if arg < n:
                     arg = self.code.co_cellvars[arg]
                 else:
-                    arg = self.code.co_freevars[arg-n]
+                    arg = self.code.co_freevars[arg - n]
             elif op in hasjabs:
-                arg = label_objs[arg*2]
+                idx = arg * 2 if sys.version_info >= (3, 10) else arg
+                arg = label_objs[idx]
             elif op in hasjrel:
-                arg = label_objs[i+(arg+1)*2]
-
-            cls = ALL_OPS[op]
+                idx = (i + (arg + 1) * 2) if sys.version_info >= (3, 10) else (i + arg + 2)
+                arg = label_objs[idx]
 
             if op < 90:
                 x = cls()
             else:
                 x = cls(arg)
 
-            elements.append(x)
+            if waiting_element is not None:
+                x, waiting_element = waiting_element, None
+                x.arg = (x.arg, arg)
+
+            if issubclass(cls, MultiOp):
+                waiting_element = x
+            else:
+                elements.append(x)
 
         return elements
 
@@ -94,6 +132,8 @@ class Serializer:
         for x in self.ops:
             if not isinstance(x, Label):
                 self.current_index += 2
+                if isinstance(x, MultiOp):
+                    self.current_index += 2  # Offset 2 more
             else:
                 x.set(self.current_index)
 
@@ -104,23 +144,11 @@ class Serializer:
             if isinstance(x, Opcode):
                 data += x.serialize(self)
                 self.current_index += 2
+                if isinstance(x, MultiOp):
+                    self.current_index += 2  # Offset 2 more
 
-        self.code = self.code.replace(co_code=data,
-                                      co_stacksize=self.calculate_stack(data),
-                                      co_nlocals=len(self.code.co_varnames) + self.code.co_argcount)
-        # dis(self.code)
+        self.code = code_replace(self.code,
+                                 co_code=data,
+                                 co_stacksize=self.calculate_stack(data),
+                                 co_nlocals=len(self.code.co_varnames))
         return self.code
-
-
-if __name__ == "__main__":
-    def x(param: int) -> str:
-        for j in range(param):
-            if param < 20:
-                return "a" + chr(param)
-            else:
-                return "B" * param
-
-    d = Deserializer(x.__code__)
-    ops = d.deserialize()
-    s = Serializer(ops, x.__code__)
-    dis(s.serialize())
