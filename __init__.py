@@ -1,6 +1,6 @@
 import dis
-from asm.ops import *
-from asm.serializer import Serializer, Deserializer, Label
+from ops import *
+from serializer import Serializer, Deserializer, Label
 
 __all__ = tuple(dis.opmap.keys()) + (
     "Serializer", "Deserializer", "Label",

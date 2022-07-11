@@ -1,8 +1,9 @@
-from dis import _unpack_opargs
-from opcode import hasjrel, hasjabs, hasconst, hasname, haslocal, cmp_op, hascompare, hasfree
+from dis import _unpack_opargs, dis
+from opcode import hasjrel, hasjabs, hasconst, hasname, haslocal, cmp_op, hascompare, stack_effect, hasfree
 from types import CodeType
 from typing import List, Union
-from ops import Opcode, ALL_OPS, MultiOp
+
+from ops import Opcode, ALL_OPS
 from stack_chek import StackChecker
 
 
@@ -18,6 +19,7 @@ class Label:
         return "Label({0})".format(hex(id(self)))
 
 
+# Deserializer Class
 class Deserializer:
     def __init__(self, code: CodeType):
         self.code = code
@@ -26,7 +28,7 @@ class Deserializer:
         lbls = []
         for (i, op, arg) in _unpack_opargs(self.code.co_code):
             if op in hasjrel:
-                idx = i + arg * 2
+                idx = i + (arg + 1) * 2
                 if idx not in lbls:
                     lbls.append(idx)
             elif op in hasjabs:
@@ -39,14 +41,11 @@ class Deserializer:
         label_objs = {it: Label() for it in labels}
         elements = []
         for (i, op, arg) in _unpack_opargs(self.code.co_code):
-            cls = ALL_OPS[op]
-            if issubclass(cls, MultiOp):
-                raise NotImplementedError(
-                    "_unpack_opargs does not support multiple arguments yet! ({0})".format(cls.__name__))
             for k, l in label_objs.items():
                 if i == k:
                     elements.append(l)
                     break
+
             if op in hasconst:
                 arg = self.code.co_consts[arg]
             elif op in hasname:
@@ -64,15 +63,21 @@ class Deserializer:
             elif op in hasjabs:
                 arg = label_objs[arg * 2]
             elif op in hasjrel:
-                arg = label_objs[i + arg * 2]
+                arg = label_objs[i + (arg + 1) * 2]
+
+            cls = ALL_OPS[op]
+
             if op < 90:
                 x = cls()
             else:
                 x = cls(arg)
+
             elements.append(x)
+
         return elements
 
 
+# Serializer Class
 class Serializer:
     def __init__(self, ops: List[Union[Opcode, Label]], code: CodeType):
         self.ops = ops
@@ -87,24 +92,38 @@ class Serializer:
 
     def serialize(self) -> CodeType:
         self.current_index = 0
+
         for x in self.ops:
             if not isinstance(x, Label):
                 self.current_index += 2
-                if isinstance(x, MultiOp):
-                    self.current_index += 2  # Offset 2 more
             else:
                 x.set(self.current_index)
 
         data = b""
+
         self.current_index = 0
         for x in self.ops:
             if isinstance(x, Opcode):
                 data += x.serialize(self)
                 self.current_index += 2
-                if isinstance(x, MultiOp):
-                    self.current_index += 2  # Offset 2 more
 
         self.code = self.code.replace(co_code=data,
                                       co_stacksize=self.calculate_stack(data),
-                                      co_nlocals=len(self.code.co_varnames))
+                                      co_nlocals=len(self.code.co_varnames) + self.code.co_argcount)
+        # dis(self.code)
         return self.code
+
+
+if __name__ == "__main__":
+    def x(param: int) -> str:
+        for j in range(param):
+            if param < 20:
+                return "a" + chr(param)
+            else:
+                return "B" * param
+
+
+    d = Deserializer(x.__code__)
+    ops = d.deserialize()
+    s = Serializer(ops, x.__code__)
+    dis(s.serialize())

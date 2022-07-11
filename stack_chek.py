@@ -1,12 +1,11 @@
 from opcode import opmap, hasjrel, hasjabs, stack_effect
-from struct import unpack
 
 hasbranch = [
-    opmap.get("JUMP_IF_FALSE_OR_POP"),
-    opmap.get("JUMP_IF_TRUE_OR_POP"),
-    opmap.get("POP_JUMP_IF_FALSE"),
-    opmap.get("POP_JUMP_IF_TRUE"),
-    opmap.get("JUMP_IF_NOT_EXC_MATCH"),
+    opmap["JUMP_IF_FALSE_OR_POP"],
+    opmap["JUMP_IF_TRUE_OR_POP"],
+    opmap["POP_JUMP_IF_FALSE"],
+    opmap["POP_JUMP_IF_TRUE"],
+    opmap["JUMP_IF_NOT_EXC_MATCH"],
 ]
 
 
@@ -16,38 +15,35 @@ class StackChecker:
         self.max = 0
 
     def check_offset(self, offset: int, current: int, jumped: list):
+        # TODO: Support infinite loops
+
         n = 0
-        while 2 * (offset + n) < len(self.code):
-            op = self.code[2 * (offset + n):]
-            op, arg = unpack("BB", op[:2])
+        while offset + n < len(self.code) / 2:
+            op = self.code[2*(offset + n):2*(offset + n + 1)]
             n += 1
-            current += stack_effect(op, arg) if op >= 90 else stack_effect(op)
+            current += stack_effect(op[0], op[1]) if op[0] >= 90 else stack_effect(op[0])
             self.max = max(self.max, current)
 
-            # TODO: Something still goes wrong here
-            # if current < 0:
-            #     raise ValueError("Negative stack index!")
+            if current < 0:
+                raise ValueError("Negative stack index!")
 
-            if op in hasbranch:
-                new_jumped = jumped + [arg, current + n]
+            if op[0] in hasbranch:
+                new_jumped = jumped + [op[1], current+n]
 
                 # do both branches
-                if arg not in jumped:
-                    self.check_offset(arg, current, new_jumped)
+                if op[1] not in jumped:
+                    self.check_offset(op[1], current, new_jumped)
                 if current + n not in jumped:
                     self.check_offset(current + n, current, new_jumped)
-                return
 
-            elif op in hasjabs and arg not in jumped:
+            elif op[0] in hasjabs:
                 # do jump
-                self.check_offset(arg, current, jumped + [arg])
-                return
-            elif op in hasjrel and offset + n + arg not in jumped:
+                n = op[1] - current
+            elif op[0] in hasjrel:
                 # do jump
-                self.check_offset(offset + n + arg, current, jumped + [offset + n + arg])
-                return
+                n += op[1]
 
-            if op == opmap["RETURN_VALUE"]:
+            if op[0] == opmap["RETURN_VALUE"]:
                 break
 
     def check(self):
