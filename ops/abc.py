@@ -15,13 +15,13 @@ class Opcode:
         return self.int_arg(self.arg)
 
     def int_arg(self, x: int) -> bytes:
+        return pack("Bb" if x < 0 else "BB", self.id, x)
         return pack("Bb" if x < 0 else "BB", self.id, x & 0xFF)
 
 
 class JumpOp(Opcode):
     def __init__(self, id: int, arg: 'Label'):
         super().__init__(id, arg)
-
         arg.parents.append(self)
         self.target_index = None
 
@@ -32,7 +32,6 @@ class ConstOp(Opcode):
 
     def serialize(self, ctx: 'Serializer') -> bytes:
         from serializer import code_replace
-
         if self.arg not in ctx.code.co_consts:
             ctx.code = code_replace(
                 ctx.code,
@@ -47,7 +46,6 @@ class NameOp(Opcode):
 
     def serialize(self, ctx: 'Serializer') -> bytes:
         from serializer import code_replace
-
         if self.arg not in ctx.code.co_names:
             ctx.code = code_replace(
                 ctx.code,
@@ -62,7 +60,6 @@ class VarOp(Opcode):
 
     def serialize(self, ctx: 'Serializer') -> bytes:
         from serializer import code_replace
-
         if self.arg not in ctx.code.co_varnames:
             ctx.code = code_replace(
                 ctx.code,
@@ -109,7 +106,6 @@ class MultiOp(Opcode):
     def serialize(self, ctx: 'Serializer') -> bytes:
         l = self.serialize_left(ctx, self.arg[0])
         r = self.serialize_right(ctx, self.arg[1])
-
         return l + r
 
     def serialize_left(self, ctx: 'Serializer', arg) -> bytes:

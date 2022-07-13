@@ -1,7 +1,6 @@
 import sys
 from opcode import opmap, cmp_op
 from typing import TYPE_CHECKING, Any
-
 from ops.abc import Opcode, AbsJumpOp, RelJumpOp, VarOp, ConstOp, NameOp, CellOp
 
 if TYPE_CHECKING:
@@ -236,8 +235,6 @@ if sys.version_info < (3, 8):
     class BREAK_LOOP(Opcode):
         def __init__(self):
             super().__init__(opmap["BREAK_LOOP"], 0)
-
-
 if sys.version_info < (3, 5):
     class WITH_CLEANUP(Opcode):
         def __init__(self):
@@ -259,11 +256,10 @@ class YIELD_VALUE(Opcode):
         super().__init__(opmap["YIELD_VALUE"], 0)
 
 
-class POP_BLOCK(Opcode):
-    def __init__(self):
-        super().__init__(opmap["POP_BLOCK"], 0)
-
-
+if sys.version_info < (3, 11):
+    class POP_BLOCK(Opcode):
+        def __init__(self):
+            super().__init__(opmap["POP_BLOCK"], 0)
 if sys.version_info < (3, 9):
     class END_FINALLY(Opcode):
         def __init__(self):
@@ -364,6 +360,10 @@ class LOAD_ATTR(NameOp):
 class COMPARE_OP(Opcode):
     def __init__(self, arg: str):
         super().__init__(opmap["COMPARE_OP"], cmp_op.index(arg))
+        super().__init__(opmap["COMPARE_OP"], arg)
+
+    def serialize(self, ctx: 'Serializer') -> bytes:
+        return self.int_arg(cmp_op.index(self.arg))
 
 
 class IMPORT_NAME(NameOp):
@@ -416,11 +416,10 @@ if sys.version_info < (3, 8):
     class SETUP_EXCEPT(RelJumpOp):
         def __init__(self, arg: 'Label'):
             super().__init__(opmap["SETUP_EXCEPT"], arg)
-
-
-class SETUP_FINALLY(RelJumpOp):
-    def __init__(self, arg: 'Label'):
-        super().__init__(opmap["SETUP_FINALLY"], arg)
+if sys.version_info < (3, 11):
+    class SETUP_FINALLY(RelJumpOp):
+        def __init__(self, arg: 'Label'):
+            super().__init__(opmap["SETUP_FINALLY"], arg)
 
 
 class LOAD_FAST(VarOp):
